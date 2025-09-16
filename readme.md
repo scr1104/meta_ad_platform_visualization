@@ -8,7 +8,7 @@ Interactive LEGO timeline visualization for daily ad spend analysis.
 - Use interactive controls for filtering and sorting
 
 ## Live Demo
-[View Timeline](https://yourusername.github.io/meta_ad_platform_visualization/)
+[View Timeline](https://scr1104.github.io/meta_ad_platform_visualization/index.html)
 
 ## Data Format
 Expected CSV columns: ad_id, ad_name, ad_set_name, date_day, daily_spend, lifetime_cac_*
