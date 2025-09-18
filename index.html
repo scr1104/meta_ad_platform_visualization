@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ad Creative Daily Timeline</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script>
+        // Fallback for D3.js if CDN fails
+        if (typeof d3 === 'undefined') {
+            document.write('<script src="https://d3js.org/d3.v7.min.js"><\/script>');
+        }
+    </script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -346,9 +352,11 @@
                     <label for="colorBy">Color by:</label>
                     <select id="colorBy">
                         <option value="spend">Daily Spend</option>
-                        <option value="lifetime_cac_ft">CAC First Touch</option>
-                        <option value="lifetime_cac_lt_non_direct">CAC Last Touch Non-Direct</option>
-                        <option value="lifetime_cac_participation">CAC Participation</option>
+                        <option value="daily_cac_ft">Daily CAC First Touch</option>
+                        <option value="daily_cac_lt_non_direct">Daily CAC Last Touch Non-Direct</option>
+                        <option value="daily_cac_participation">Daily CAC Participation</option>
+                        <option value="daily_cac_meta_1d_view">Daily CAC Meta 1D View</option>
+                        <option value="daily_cac_meta_7d_click">Daily CAC Meta 7D Click</option>
                     </select>
                 </div>
                 
@@ -360,6 +368,28 @@
                         <option value="avg_daily_spend">Avg Daily Spend</option>
                         <option value="ad_name">Creative Name</option>
                     </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="sortOrder">Order:</label>
+                    <select id="sortOrder">
+                        <option value="desc">High to Low</option>
+                        <option value="asc">Low to High</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="startDate">From Date:</label>
+                    <input type="date" id="startDate" style="width: 140px;">
+                </div>
+                
+                <div class="control-group">
+                    <label for="endDate">To Date:</label>
+                    <input type="date" id="endDate" style="width: 140px;">
+                </div>
+                
+                <div class="control-group">
+                    <button class="btn" onclick="resetDateFilter()" style="padding: 8px 16px; font-size: 14px; background: #6b7280;">Reset Dates</button>
                 </div>
                 
                 <div class="control-group">
@@ -545,11 +575,34 @@
                 creativeMap.get(key).dailyData.push({
                     date: dateObj,
                     daily_spend: parseFloat(row.daily_spend) || 0,
+                    // Use daily-level CAC calculations
+                    daily_cac_ft: parseFloat(row.daily_converge_conversion_ft) > 0 
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.daily_converge_conversion_ft)
+                        : (parseFloat(row.lifetime_cac_ft) || 0),
+                    daily_cac_lt_non_direct: parseFloat(row.daily_converge_conversion_lt_non_direct) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.daily_converge_conversion_lt_non_direct)
+                        : (parseFloat(row.lifetime_cac_lt_non_direct) || 0),
+                    daily_cac_participation: parseFloat(row.daily_converge_conversion_participation) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.daily_converge_conversion_participation)
+                        : (parseFloat(row.lifetime_cac_participation) || 0),
+                    daily_cac_meta_1d_view: parseFloat(row.meta_conversion_1d_view) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.meta_conversion_1d_view)
+                        : (parseFloat(row.lifetime_cac_meta_1d_view) || 0),
+                    daily_cac_meta_7d_click: parseFloat(row.meta_conversion_7d_click) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.meta_conversion_7d_click)
+                        : (parseFloat(row.lifetime_cac_meta_7d_click) || 0),
+                    // Keep lifetime values for reference
                     lifetime_cac_ft: parseFloat(row.lifetime_cac_ft) || 0,
                     lifetime_cac_lt_non_direct: parseFloat(row.lifetime_cac_lt_non_direct) || 0,
                     lifetime_cac_participation: parseFloat(row.lifetime_cac_participation) || 0,
                     lifetime_cac_meta_1d_view: parseFloat(row.lifetime_cac_meta_1d_view) || 0,
                     lifetime_cac_meta_7d_click: parseFloat(row.lifetime_cac_meta_7d_click) || 0,
+                    // Daily conversions for reference
+                    daily_converge_conversion_ft: parseInt(row.daily_converge_conversion_ft) || 0,
+                    daily_converge_conversion_lt_non_direct: parseInt(row.daily_converge_conversion_lt_non_direct) || 0,
+                    daily_converge_conversion_participation: parseInt(row.daily_converge_conversion_participation) || 0,
+                    meta_conversion_1d_view: parseFloat(row.meta_conversion_1d_view) || 0,
+                    meta_conversion_7d_click: parseFloat(row.meta_conversion_7d_click) || 0,
                     nth_day: parseInt(row.nth_day) || 0,
                     total_clicks: parseInt(row.total_clicks) || 0,
                     total_conversions_ft: parseInt(row.total_conversions_ft) || 0
@@ -579,6 +632,42 @@
             
             console.log(`Processed ${allData.length} creatives with daily data`);
             console.log("Sample creative:", allData[0]);
+            
+            // Initialize date range inputs based on data
+            initializeDateRange();
+        }
+        
+        function initializeDateRange() {
+            if (allData.length === 0) return;
+            
+            // Get the overall date range from all data
+            const allDates = allData.flatMap(d => d.dailyData.map(dd => dd.date));
+            const dateExtent = d3.extent(allDates);
+            
+            // Format dates as YYYY-MM-DD for the date inputs
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            
+            if (dateExtent[0] && dateExtent[1]) {
+                const minDate = dateExtent[0].toISOString().split('T')[0];
+                const maxDate = dateExtent[1].toISOString().split('T')[0];
+                
+                // Set the min and max attributes for the date inputs
+                startDateInput.min = minDate;
+                startDateInput.max = maxDate;
+                endDateInput.min = minDate;
+                endDateInput.max = maxDate;
+                
+                // Optionally set default values to show full range
+                // startDateInput.value = minDate;
+                // endDateInput.value = maxDate;
+            }
+        }
+        
+        function resetDateFilter() {
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            updateVisualization();
         }
         
         function getDailyColor(dayData, colorBy) {
@@ -587,47 +676,111 @@
                 const maxSpend = Math.max(...allData.flatMap(d => d.dailyData.map(dd => dd.daily_spend)));
                 const intensity = dayData.daily_spend / maxSpend;
                 return d3.interpolateBlues(0.3 + intensity * 0.7);
-            } else if (colorBy === 'lifetime_cac_ft' || colorBy === 'lifetime_cac_lt_non_direct') {
-                // CAC color scale for FT and LT
+            } else {
+                // Use daily CAC values for coloring
                 const value = dayData[colorBy];
-                if (value <= 150) return '#22c55e';
-                if (value <= 200) return '#84cc16';
-                if (value <= 250) return '#eab308';
-                if (value <= 300) return '#f97316';
-                return '#ef4444';
-            } else if (colorBy === 'lifetime_cac_participation') {
-                // CAC color scale for participation
-                const value = dayData[colorBy];
-                if (value <= 100) return '#22c55e';
-                if (value <= 150) return '#84cc16';
-                if (value <= 200) return '#eab308';
-                if (value <= 250) return '#f97316';
-                return '#ef4444';
+                
+                // Handle different CAC metric thresholds
+                if (colorBy === 'daily_cac_participation') {
+                    if (value <= 100) return '#22c55e';
+                    if (value <= 150) return '#84cc16';
+                    if (value <= 200) return '#eab308';
+                    if (value <= 250) return '#f97316';
+                    return '#ef4444';
+                } else if (colorBy.includes('meta')) {
+                    // Meta CAC thresholds (often higher)
+                    if (value <= 200) return '#22c55e';
+                    if (value <= 300) return '#84cc16';
+                    if (value <= 400) return '#eab308';
+                    if (value <= 500) return '#f97316';
+                    return '#ef4444';
+                } else {
+                    // Standard CAC thresholds (FT, LT Non-Direct)
+                    if (value <= 150) return '#22c55e';
+                    if (value <= 200) return '#84cc16';
+                    if (value <= 250) return '#eab308';
+                    if (value <= 300) return '#f97316';
+                    return '#ef4444';
+                }
             }
-            return '#3b82f6'; // fallback
         }
         
         function filterAndSortData() {
             const sortBy = document.getElementById('sortBy').value;
+            const sortOrder = document.getElementById('sortOrder').value;
             const minTotalSpend = parseFloat(document.getElementById('minTotalSpend').value) || 0;
             const maxRows = parseInt(document.getElementById('maxRows').value);
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
             
             // Filter creatives based on total spend (sum of all daily spend)
             let filtered = allData.filter(creative => creative.total_spend >= minTotalSpend);
             
-            // Sort
+            // Apply date window filter if dates are specified
+            if (startDate || endDate) {
+                filtered = filtered.map(creative => {
+                    // Filter daily data within the date window
+                    const filteredDailyData = creative.dailyData.filter(dayData => {
+                        const dayString = dayData.date.toISOString().split('T')[0];
+                        
+                        if (startDate && dayString < startDate) return false;
+                        if (endDate && dayString > endDate) return false;
+                        return true;
+                    });
+                    
+                    // If no daily data remains after filtering, exclude this creative
+                    if (filteredDailyData.length === 0) return null;
+                    
+                    // Create new creative object with filtered daily data and recalculated aggregates
+                    return {
+                        ...creative,
+                        dailyData: filteredDailyData,
+                        start_date: filteredDailyData[0].date,
+                        end_date: filteredDailyData[filteredDailyData.length - 1].date,
+                        total_spend: filteredDailyData.reduce((sum, d) => sum + d.daily_spend, 0),
+                        avg_daily_spend: filteredDailyData.reduce((sum, d) => sum + d.daily_spend, 0) / filteredDailyData.length,
+                        duration: Math.ceil((filteredDailyData[filteredDailyData.length - 1].date - filteredDailyData[0].date) / (1000 * 60 * 60 * 24)) + 1,
+                        total_clicks: filteredDailyData.reduce((sum, d) => sum + d.total_clicks, 0),
+                        total_conversions: filteredDailyData.reduce((sum, d) => sum + d.total_conversions_ft, 0)
+                    };
+                }).filter(creative => creative !== null);
+                
+                // Re-apply spend filter after date filtering (since totals may have changed)
+                filtered = filtered.filter(creative => creative.total_spend >= minTotalSpend);
+            }
+            
+            // Sort data
             filtered.sort((a, b) => {
+                let comparison = 0;
+                
                 switch(sortBy) {
                     case 'total_spend':
-                        return b.total_spend - a.total_spend;
+                        comparison = b.total_spend - a.total_spend;
+                        break;
                     case 'avg_daily_spend':
-                        return b.avg_daily_spend - a.avg_daily_spend;
+                        comparison = b.avg_daily_spend - a.avg_daily_spend;
+                        break;
                     case 'start_date':
-                        return a.start_date - b.start_date;
+                        comparison = a.start_date - b.start_date;
+                        break;
                     case 'ad_name':
-                        return a.display_name.localeCompare(b.display_name);
+                        comparison = a.display_name.localeCompare(b.display_name);
+                        break;
                     default:
-                        return a.start_date - b.start_date;
+                        comparison = a.start_date - b.start_date;
+                }
+                
+                // Apply sort order (reverse if ascending for numeric values)
+                if (sortOrder === 'asc') {
+                    if (sortBy === 'ad_name' || sortBy === 'start_date') {
+                        // For text and dates, asc means normal order
+                        return comparison;
+                    } else {
+                        // For numeric values, asc means reverse the default high-to-low
+                        return -comparison;
+                    }
+                } else {
+                    return comparison;
                 }
             });
             
@@ -690,16 +843,27 @@
             
             // Color thresholds based on metric type
             let thresholds;
-            const metricName = colorBy === 'lifetime_cac_ft' ? 'CAC First Touch' 
-                           : colorBy === 'lifetime_cac_lt_non_direct' ? 'CAC LT Non-Direct'
-                           : 'CAC Participation';
+            const metricName = colorBy === 'daily_cac_ft' ? 'Daily CAC First Touch' 
+                           : colorBy === 'daily_cac_lt_non_direct' ? 'Daily CAC LT Non-Direct'
+                           : colorBy === 'daily_cac_participation' ? 'Daily CAC Participation'
+                           : colorBy === 'daily_cac_meta_1d_view' ? 'Daily CAC Meta 1D View'
+                           : colorBy === 'daily_cac_meta_7d_click' ? 'Daily CAC Meta 7D Click'
+                           : 'Daily CAC';
             
-            if (colorBy === 'lifetime_cac_participation') {
+            if (colorBy === 'daily_cac_participation') {
                 thresholds = [
                     { max: 100, color: '#22c55e', label: 'Excellent' },
                     { max: 150, color: '#84cc16', label: 'Good' },
                     { max: 200, color: '#eab308', label: 'Medium' },
                     { max: 250, color: '#f97316', label: 'High' },
+                    { max: Infinity, color: '#ef4444', label: 'Very High' }
+                ];
+            } else if (colorBy.includes('meta')) {
+                thresholds = [
+                    { max: 200, color: '#22c55e', label: 'Excellent' },
+                    { max: 300, color: '#84cc16', label: 'Good' },
+                    { max: 400, color: '#eab308', label: 'Medium' },
+                    { max: 500, color: '#f97316', label: 'High' },
                     { max: Infinity, color: '#ef4444', label: 'Very High' }
                 ];
             } else {
@@ -739,10 +903,13 @@
                 cacLegend.style.display = 'flex';
                 
                 // Update CAC threshold text based on selected metric
-                if (colorBy === 'lifetime_cac_participation') {
-                    cacLegendText.textContent = 'CAC Participation thresholds: Green ≤$100, Lime ≤$150, Yellow ≤$200, Orange ≤$250, Red >$250';
+                if (colorBy === 'daily_cac_participation') {
+                    cacLegendText.textContent = 'Daily CAC Participation thresholds: Green ≤$100, Lime ≤$150, Yellow ≤$200, Orange ≤$250, Red >$250';
+                } else if (colorBy.includes('meta')) {
+                    const metricName = colorBy === 'daily_cac_meta_1d_view' ? 'Daily CAC Meta 1D View' : 'Daily CAC Meta 7D Click';
+                    cacLegendText.textContent = `${metricName} thresholds: Green ≤$200, Lime ≤$300, Yellow ≤$400, Orange ≤$500, Red >$500`;
                 } else {
-                    const metricName = colorBy === 'lifetime_cac_ft' ? 'CAC First Touch' : 'CAC Last Touch Non-Direct';
+                    const metricName = colorBy === 'daily_cac_ft' ? 'Daily CAC First Touch' : 'Daily CAC LT Non-Direct';
                     cacLegendText.textContent = `${metricName} thresholds: Green ≤$150, Lime ≤$200, Yellow ≤$250, Orange ≤$300, Red >$300`;
                 }
             }
@@ -761,7 +928,7 @@
             
             if (filteredData.length === 0) return;
             
-            const margin = { top: 80, right: 180, bottom: 80, left: 280 };
+            const margin = { top: 80, right: 180, bottom: 120, left: 280 }; // Increased bottom margin for rotated labels
             const rowHeight = 24;
             const rowSpacing = 6;
             const height = Math.max(400, filteredData.length * (rowHeight + rowSpacing) + margin.top + margin.bottom);
@@ -809,26 +976,48 @@
                         .on('mouseover', function(event) {
                             const tooltip = d3.select('#tooltip');
                             
-                            // Show all CAC metrics in tooltip including meta metrics
-                            const allCAC = `
-                                <strong>All CAC Metrics:</strong><br>
-                                • CAC First Touch: ${(dayData.lifetime_cac_ft || 0).toFixed(2)}<br>
-                                • CAC LT Non-Direct: ${(dayData.lifetime_cac_lt_non_direct || 0).toFixed(2)}<br>
-                                • CAC Participation: ${(dayData.lifetime_cac_participation || 0).toFixed(2)}<br>
-                                • CAC Meta 1D View: ${(dayData.lifetime_cac_meta_1d_view || 0).toFixed(2)}<br>
-                                • CAC Meta 7D Click: ${(dayData.lifetime_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                          // Calculate overall/lifetime CAC metrics from creative data
+                            const overallMetrics = `
+                                <strong>📊 Overall Creative Performance:</strong><br>
+                                • Total Spend: $${creative.total_spend.toLocaleString()}<br>
+                                • Duration: ${creative.duration} days<br>
+                                • Avg Daily Spend: $${Math.round(creative.avg_daily_spend).toLocaleString()}<br>
+                                • Total Clicks: ${creative.total_clicks.toLocaleString()}<br>
+                                • Total Conversions: ${creative.total_conversions}<br><br>
+                                <strong>🎯 Lifetime CAC Metrics:</strong><br>
+                                • Lifetime CAC First Touch: $${(dayData.lifetime_cac_ft || 0).toFixed(2)}<br>
+                                • Lifetime CAC LT Non-Direct: $${(dayData.lifetime_cac_lt_non_direct || 0).toFixed(2)}<br>
+                                • Lifetime CAC Participation: $${(dayData.lifetime_cac_participation || 0).toFixed(2)}<br>
+                                • Lifetime CAC Meta 1D View: $${(dayData.lifetime_cac_meta_1d_view || 0).toFixed(2)}<br>
+                                • Lifetime CAC Meta 7D Click: $${(dayData.lifetime_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                            `;
+                            
+                            // Show daily metrics
+                            const dailyMetrics = `
+                                <strong>📅 This Day (${dayData.date.toLocaleDateString()}):</strong><br>
+                                • Day #${dayData.nth_day} • Daily Spend: $${dayData.daily_spend.toLocaleString()}<br>
+                                • Daily Clicks: ${dayData.total_clicks.toLocaleString()}<br>
+                                • Daily Conversions: ${dayData.total_conversions_ft}<br><br>
+                                <strong>Daily CAC (calculated from this day):</strong><br>
+                                • Daily CAC First Touch: $${(dayData.daily_cac_ft || 0).toFixed(2)}<br>
+                                • Daily CAC LT Non-Direct: $${(dayData.daily_cac_lt_non_direct || 0).toFixed(2)}<br>
+                                • Daily CAC Participation: $${(dayData.daily_cac_participation || 0).toFixed(2)}<br>
+                                • Daily CAC Meta 1D View: $${(dayData.daily_cac_meta_1d_view || 0).toFixed(2)}<br>
+                                • Daily CAC Meta 7D Click: $${(dayData.daily_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                                <strong>Daily Conversions:</strong><br>
+                                • FT: ${dayData.daily_converge_conversion_ft || 0} | LT Non-Direct: ${dayData.daily_converge_conversion_lt_non_direct || 0}<br>
+                                • Participation: ${dayData.daily_converge_conversion_participation || 0}<br>
+                                • Meta 1D View: ${dayData.meta_conversion_1d_view || 0} | Meta 7D Click: ${dayData.meta_conversion_7d_click || 0}
                             `;
                             
                             tooltip.style('opacity', 1)
                                 .html(`
-                                    <strong>${creative.display_name}</strong><br>
-                                    <strong>Date:</strong> ${dayData.date.toLocaleDateString()}<br>
-                                    <strong>Day #:</strong> ${dayData.nth_day}<br>
-                                    <strong>Daily Spend:</strong> ${dayData.daily_spend.toLocaleString()}<br><br>
-                                    ${allCAC}
-                                    <strong>Clicks:</strong> ${dayData.total_clicks.toLocaleString()}<br>
-                                    <strong>Conversions:</strong> ${dayData.total_conversions_ft}<br>
-                                    <strong>Ad ID:</strong> ${creative.ad_id}
+                                    <div style="max-width: 400px;">
+                                        <strong style="font-size: 14px; color: #3b82f6;">${creative.display_name}</strong><br>
+                                        <span style="color: #6b7280; font-size: 11px;">Ad ID: ${creative.ad_id}</span><br><br>
+                                        ${overallMetrics}
+                                        ${dailyMetrics}
+                                    </div>
                                 `)
                                 .style('left', (event.pageX + 10) + 'px')
                                 .style('top', (event.pageY - 10) + 'px');
@@ -883,32 +1072,32 @@
                 .attr('transform', `translate(0, ${axisHeight})`)
                 .call(xAxis);
             
-            // Top X-axis
+        // Top X-axis
             const topXAxis = d3.axisTop(xScale)
                 .ticks(xAxis.ticks())
                 .tickFormat(xAxis.tickFormat());
             
-            g.append('g')
+            const topXAxisGroup = g.append('g')
                 .attr('class', 'axis')
                 .attr('transform', 'translate(0, -10)')
                 .call(topXAxis);
             
-            // Rotate labels if needed
+            // Rotate labels for better visibility and increase bottom margin
             const tickCount = xAxisGroup.selectAll('.tick').size();
-            if (tickCount > 10) {
+            if (tickCount > 6) {
+                // Bottom axis rotation
                 xAxisGroup.selectAll('text')
                     .style('text-anchor', 'end')
-                    .attr('dx', '-.8em')
-                    .attr('dy', '.15em')
-                    .attr('transform', 'rotate(-45)');
+                    .attr('dx', '-1.2em')
+                    .attr('dy', '0.5em')
+                    .attr('transform', 'rotate(-60)');
                     
-                // Also rotate top axis labels
-                g.selectAll('.axis').selectAll('text')
-                    .filter(function() { return d3.select(this.parentNode.parentNode).attr('transform') === 'translate(0, -10)'; })
+                // Top axis rotation
+                topXAxisGroup.selectAll('text')
                     .style('text-anchor', 'start')
-                    .attr('dx', '.8em')
-                    .attr('dy', '.15em')
-                    .attr('transform', 'rotate(-45)');
+                    .attr('dx', '1.2em')
+                    .attr('dy', '-0.5em')
+                    .attr('transform', 'rotate(60)');
             }
             
             // Add grid lines
@@ -959,6 +1148,9 @@
         // Event listeners
         document.getElementById('colorBy').addEventListener('change', updateVisualization);
         document.getElementById('sortBy').addEventListener('change', updateVisualization);
+        document.getElementById('sortOrder').addEventListener('change', updateVisualization);
+        document.getElementById('startDate').addEventListener('change', updateVisualization);
+        document.getElementById('endDate').addEventListener('change', updateVisualization);
         document.getElementById('minTotalSpend').addEventListener('input', updateVisualization);
         document.getElementById('maxRows').addEventListener('change', updateVisualization);
     </script>
