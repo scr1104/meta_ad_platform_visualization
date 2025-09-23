@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ad Creative Daily Timeline</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script>
+        // Fallback for D3.js if CDN fails
+        if (typeof d3 === 'undefined') {
+            document.write('<script src="https://d3js.org/d3.v7.min.js"><\/script>');
+        }
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            margin: 20px;
+            background: #f8fafc;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 24px;
+        }
+        
+        .header {
+            margin-bottom: 24px;
+        }
+        
+        .title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+        
+        .subtitle {
+            color: #64748b;
+            font-size: 16px;
+        }
+        
+        .file-upload {
+            margin-bottom: 24px;
+            padding: 40px;
+            border: 3px dashed #d1d5db;
+            border-radius: 12px;
+            text-align: center;
+            background: #f9fafb;
+            transition: all 0.3s ease;
+        }
+        
+        .file-upload.dragover {
+            border-color: #3b82f6;
+            background: #eff6ff;
+            transform: scale(1.02);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        
+        label {
+            font-weight: 500;
+            color: #374151;
+        }
+        
+        select, input {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .chart-container {
+            overflow-x: auto;  /* keeps a scrollbar if SVG ever exceeds container */
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            position: relative;
+        }
+        
+        .daily-block {
+            cursor: pointer;
+            transition: opacity 0.2s;
+            stroke: #ffffff;
+            stroke-width: 0.5;
+        }
+        
+        .daily-block:hover {
+            opacity: 0.8;
+            stroke-width: 1;
+        }
+        
+        .axis {
+            font-size: 12px;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(17, 24, 39, 0.95);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            max-width: 350px;
+            line-height: 1.4;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
+            z-index: 1000;
+        }
+        
+        .legend {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 14px;
+            color: #6b7280;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 4px;
+            border-radius: 2px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e5e7eb;
+        }
+        
+        .stat-card {
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            background: #3b82f6;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #2563eb;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .spend-scale {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 11px;
+            min-width: 120px;
+            z-index: 10;
+        }
+        
+        .spend-scale-title {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        
+        .spend-scale-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        
+        .spend-scale-bar {
+            border-radius: 2px;
+            background: #3b82f6;
+        }
+        
+        .cac-info-panel {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 11px;
+            min-width: 140px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+        
+        .cac-info-title {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        
+        .cac-info-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 3px;
+            font-size: 10px;
+        }
+        
+        .cac-color-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .grid line {
+            stroke: #f1f5f9;
+            stroke-width: 1;
+        }
+        
+        .grid .domain {
+            display: none;
+        }
+        
+        .demo-info {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .demo-info h4 {
+            margin: 0 0 8px 0;
+            color: #92400e;
+        }
+        
+        .demo-info p {
+            margin: 0;
+            color: #78350f;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">Daily Spend LEGO Timeline</div>
+            <div class="subtitle">Each day shows as a separate block with different thickness based on daily spend</div>
+        </div>
+        
+        <div class="demo-info">
+            <h4>📊 How This Timeline Works</h4>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 12px;">
+                <div>
+                    <p style="margin: 0 0 8px 0; font-weight: 600;">📱 Block Structure:</p>
+                    <ul style="margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.4;">
+                        <li><strong>Width:</strong> 1 day each</li>
+                        <li><strong>Height:</strong> Daily spend amount</li>
+                        <li><strong>Color:</strong> Performance level</li>
+                        <li><strong>Hover:</strong> Detailed metrics</li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <p style="margin: 0 0 8px 0; font-weight: 600;">🎨 Color Logic:</p>
+                    <ul style="margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.4;">
+                        <li><strong>Daily Spend:</strong> Blue gradient (light→dark)</li>
+                        <li><strong>CAC Metrics:</strong> Performance scale</li>
+                        <li>🟢 Green = Good • 🟡 Yellow = Medium • 🔴 Red = High</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div style="margin-top: 12px; padding: 8px; background: #f0f9ff; border-radius: 6px; border-left: 3px solid #3b82f6;">
+                <p style="margin: 0; font-size: 13px; color: #1e40af;">
+                    <strong>💡 Pro Tip:</strong> Look for red blocks (high CAC) in your top-spending creatives - these need optimization!
+                </p>
+            </div>
+        </div>
+        
+        <div class="file-upload" id="fileUpload">
+            <input type="file" id="csvFile" accept=".csv" style="display: none;">
+            <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+            <p style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">
+                Drop your daily CSV file here or <button class="btn" onclick="document.getElementById('csvFile').click()">Choose File</button>
+            </p>
+            <p style="font-size: 14px; color: #6b7280; margin-bottom: 16px;">
+                Expected columns: ad_id, ad_name, ad_set_name, date_day, daily_spend, lifetime_cac_* (optional)
+            </p>
+        </div>
+        
+        <div id="mainContent" class="hidden">
+            <div class="controls">
+                <div class="control-group">
+                    <label for="colorBy">Color by:</label>
+                    <select id="colorBy">
+                        <option value="spend">Daily Spend</option>
+                        <option value="daily_cac_ft">Daily CAC First Touch</option>
+                        <option value="daily_cac_lt_non_direct">Daily CAC Last Touch Non-Direct</option>
+                        <option value="daily_cac_participation">Daily CAC Participation</option>
+                        <option value="daily_cac_meta_1d_view">Daily CAC Meta 1D View</option>
+                        <option value="daily_cac_meta_7d_click">Daily CAC Meta 7D Click</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="sortBy">Sort by:</label>
+                    <select id="sortBy">
+                        <option value="start_date">Start Date</option>
+                        <option value="total_spend">Total Spend</option>
+                        <option value="avg_daily_spend">Avg Daily Spend</option>
+                        <option value="ad_name">Creative Name</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="sortOrder">Order:</label>
+                    <select id="sortOrder">
+                        <option value="desc">High to Low</option>
+                        <option value="asc">Low to High</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="startDate">From Date:</label>
+                    <input type="date" id="startDate" style="width: 140px;">
+                </div>
+                
+                <div class="control-group">
+                    <label for="endDate">To Date:</label>
+                    <input type="date" id="endDate" style="width: 140px;">
+                </div>
+                
+                <div class="control-group">
+                    <button class="btn" onclick="resetDateFilter()" style="padding: 8px 16px; font-size: 14px; background: #6b7280;">Reset Dates</button>
+                </div>
+                
+                <div class="control-group">
+                    <label for="minTotalSpend">Min Total Spend ($):</label>
+                    <input type="number" id="minTotalSpend" value="0" step="100" min="0">
+                </div>
+                
+                <div class="control-group">
+                    <label for="maxRows">Show top:</label>
+                    <select id="maxRows">
+                        <option value="20">20 ads</option>
+                        <option value="50">50 ads</option>
+                        <option value="100">100 ads</option>
+                        <option value="999">All ads</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <!-- New top bar for scales -->
+                <div class="scales-bar">
+                    <div id="spendScale" class="spend-scale hidden"></div>
+                    <div id="cacInfoPanel" class="cac-info-panel hidden"></div>
+                </div>
+                <svg id="timeline-chart"></svg>
+            </div>
+            <div class="legend" id="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(to right, #fef3c7, #f59e0b, #b45309);"></div>
+                    <span>Block thickness = daily spend amount (thicker = higher daily spend)</span>
+                </div>
+                <div class="legend-item" id="colorLegend">
+                    <div class="legend-color" style="background: linear-gradient(to right, #dbeafe, #3b82f6, #1e40af);"></div>
+                    <span id="colorLegendText">Blue gradient: Light blue = low daily spend, Dark blue = high daily spend</span>
+                </div>
+                <div class="legend-item" id="cacLegend" style="display: none;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <div style="width: 16px; height: 16px; background: #22c55e; border-radius: 3px; border: 1px solid #16a34a;"></div>
+                        <span style="font-size: 12px; font-weight: 500;">Green = Good CAC</span>
+                        <div style="width: 16px; height: 16px; background: #84cc16; border-radius: 3px; border: 1px solid #65a30d;"></div>
+                        <span style="font-size: 12px;">Lime = OK</span>
+                        <div style="width: 16px; height: 16px; background: #eab308; border-radius: 3px; border: 1px solid #ca8a04;"></div>
+                        <span style="font-size: 12px;">Yellow = Medium</span>
+                        <div style="width: 16px; height: 16px; background: #f97316; border-radius: 3px; border: 1px solid #ea580c;"></div>
+                        <span style="font-size: 12px;">Orange = High</span>
+                        <div style="width: 16px; height: 16px; background: #ef4444; border-radius: 3px; border: 1px solid #dc2626;"></div>
+                        <span style="font-size: 12px; font-weight: 500;">Red = Very High</span>
+                    </div>
+                    <span id="cacLegendText" style="margin-top: 4px; display: block;">CAC thresholds change based on selected metric</span>
+                </div>
+            </div>
+            
+            <div class="stats" id="stats"></div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        let allData = [];
+        let filteredData = [];
+        
+        // File handling
+        const fileUpload = document.getElementById('fileUpload');
+        const csvFile = document.getElementById('csvFile');
+        
+        fileUpload.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUpload.classList.add('dragover');
+        });
+        
+        fileUpload.addEventListener('dragleave', () => {
+            fileUpload.classList.remove('dragover');
+        });
+        
+        fileUpload.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUpload.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+        
+        csvFile.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const dailyData = parseCSV(e.target.result);
+                    processDailyData(dailyData);
+                    
+                    document.getElementById('fileUpload').style.display = 'none';
+                    document.getElementById('mainContent').classList.remove('hidden');
+                    updateVisualization();
+                } catch (error) {
+                    console.error("Error:", error);
+                    alert("Error processing file: " + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function parseCSV(csvData) {
+            const lines = csvData.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            
+            return lines.slice(1).map(line => {
+                const values = parseCSVLine(line);
+                const row = {};
+                headers.forEach((header, i) => {
+                    row[header] = values[i] || '';
+                });
+                return row;
+            });
+        }
+        
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+                
+                if (char === '"') {
+                    if (inQuotes && nextChar === '"') {
+                        current += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            
+            result.push(current.trim());
+            return result;
+        }
+        
+        function processDailyData(dailyData) {
+            console.log("Processing daily data, total rows:", dailyData.length);
+            
+            // Group by creative (ad_id) and process
+            const creativeMap = new Map();
+            
+            dailyData.forEach((row, index) => {
+                const key = row.ad_id;
+                
+                // Skip rows with missing essential data
+                if (!row.ad_id || !row.date_day || !row.daily_spend) {
+                    if (index < 10) console.warn(`Row ${index + 1}: Missing essential data`, row);
+                    return;
+                }
+                
+                if (!creativeMap.has(key)) {
+                    creativeMap.set(key, {
+                        ad_id: row.ad_id,
+                        ad_name: row.ad_name || `Ad ${row.ad_id}`,
+                        ad_set_name: row.ad_set_name || 'Unknown Ad Set',
+                        display_name: (row.ad_name && row.ad_set_name) 
+                            ? `${row.ad_name} (${row.ad_set_name})`
+                            : row.ad_name || `Ad ${row.ad_id}`,
+                        dailyData: []
+                    });
+                }
+                
+                // Parse date - handle your date_day format
+                const dateObj = new Date(row.date_day);
+                if (isNaN(dateObj.getTime())) {
+                    if (index < 10) console.warn(`Row ${index + 1}: Invalid date`, row.date_day);
+                    return;
+                }
+                
+                creativeMap.get(key).dailyData.push({
+                    date: dateObj,
+                    daily_spend: parseFloat(row.daily_spend) || 0,
+                    // Use daily-level CAC calculations
+                    daily_cac_ft: parseFloat(row.daily_converge_conversion_ft) > 0 
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.daily_converge_conversion_ft)
+                        : (parseFloat(row.lifetime_cac_ft) || 0),
+                    daily_cac_lt_non_direct: parseFloat(row.daily_converge_conversion_lt_non_direct) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.daily_converge_conversion_lt_non_direct)
+                        : (parseFloat(row.lifetime_cac_lt_non_direct) || 0),
+                    daily_cac_participation: parseFloat(row.daily_converge_conversion_participation) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.daily_converge_conversion_participation)
+                        : (parseFloat(row.lifetime_cac_participation) || 0),
+                    daily_cac_meta_1d_view: parseFloat(row.meta_conversion_1d_view) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.meta_conversion_1d_view)
+                        : (parseFloat(row.lifetime_cac_meta_1d_view) || 0),
+                    daily_cac_meta_7d_click: parseFloat(row.meta_conversion_7d_click) > 0
+                        ? (parseFloat(row.daily_spend) || 0) / parseFloat(row.meta_conversion_7d_click)
+                        : (parseFloat(row.lifetime_cac_meta_7d_click) || 0),
+                    // Keep lifetime values for reference
+                    lifetime_cac_ft: parseFloat(row.lifetime_cac_ft) || 0,
+                    lifetime_cac_lt_non_direct: parseFloat(row.lifetime_cac_lt_non_direct) || 0,
+                    lifetime_cac_participation: parseFloat(row.lifetime_cac_participation) || 0,
+                    lifetime_cac_meta_1d_view: parseFloat(row.lifetime_cac_meta_1d_view) || 0,
+                    lifetime_cac_meta_7d_click: parseFloat(row.lifetime_cac_meta_7d_click) || 0,
+                    // Daily conversions for reference
+                    daily_converge_conversion_ft: parseInt(row.daily_converge_conversion_ft) || 0,
+                    daily_converge_conversion_lt_non_direct: parseInt(row.daily_converge_conversion_lt_non_direct) || 0,
+                    daily_converge_conversion_participation: parseInt(row.daily_converge_conversion_participation) || 0,
+                    meta_conversion_1d_view: parseFloat(row.meta_conversion_1d_view) || 0,
+                    meta_conversion_7d_click: parseFloat(row.meta_conversion_7d_click) || 0,
+                    nth_day: parseInt(row.nth_day) || 0,
+                    total_clicks: parseInt(row.total_clicks) || 0,
+                    total_conversions_ft: parseInt(row.total_conversions_ft) || 0
+                });
+            });
+            
+            // Convert to array and calculate aggregates
+            allData = Array.from(creativeMap.values()).map(creative => {
+                // Sort daily data by date
+                creative.dailyData.sort((a, b) => a.date - b.date);
+                
+                // Calculate aggregates
+                if (creative.dailyData.length > 0) {
+                    creative.start_date = creative.dailyData[0].date;
+                    creative.end_date = creative.dailyData[creative.dailyData.length - 1].date;
+                    creative.total_spend = creative.dailyData.reduce((sum, d) => sum + d.daily_spend, 0);
+                    creative.avg_daily_spend = creative.total_spend / creative.dailyData.length;
+                    creative.duration = Math.ceil((creative.end_date - creative.start_date) / (1000 * 60 * 60 * 24)) + 1;
+                    creative.max_daily_spend = Math.max(...creative.dailyData.map(d => d.daily_spend));
+                    creative.min_daily_spend = Math.min(...creative.dailyData.map(d => d.daily_spend));
+                    creative.total_clicks = creative.dailyData.reduce((sum, d) => sum + d.total_clicks, 0);
+                    creative.total_conversions = creative.dailyData.reduce((sum, d) => sum + d.total_conversions_ft, 0);
+                }
+                
+                return creative;
+            }).filter(creative => creative.dailyData.length > 0);
+            
+            console.log(`Processed ${allData.length} creatives with daily data`);
+            console.log("Sample creative:", allData[0]);
+            
+            // Initialize date range inputs based on data
+            initializeDateRange();
+        }
+        
+        function initializeDateRange() {
+            if (allData.length === 0) return;
+            
+            // Get the overall date range from all data
+            const allDates = allData.flatMap(d => d.dailyData.map(dd => dd.date));
+            const dateExtent = d3.extent(allDates);
+            
+            // Format dates as YYYY-MM-DD for the date inputs
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            
+            if (dateExtent[0] && dateExtent[1]) {
+                const minDate = dateExtent[0].toISOString().split('T')[0];
+                const maxDate = dateExtent[1].toISOString().split('T')[0];
+                
+                // Set the min and max attributes for the date inputs
+                startDateInput.min = minDate;
+                startDateInput.max = maxDate;
+                endDateInput.min = minDate;
+                endDateInput.max = maxDate;
+                
+                // Optionally set default values to show full range
+                // startDateInput.value = minDate;
+                // endDateInput.value = maxDate;
+            }
+        }
+        
+        function resetDateFilter() {
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            updateVisualization();
+        }
+        
+        function getDailyColor(dayData, colorBy) {
+            if (colorBy === 'spend') {
+                // Blue scale for spend
+                const maxSpend = Math.max(...allData.flatMap(d => d.dailyData.map(dd => dd.daily_spend)));
+                const intensity = dayData.daily_spend / maxSpend;
+                return d3.interpolateBlues(0.3 + intensity * 0.7);
+            } else {
+                // Use daily CAC values for coloring
+                const value = dayData[colorBy];
+                
+                // Handle different CAC metric thresholds
+                if (colorBy === 'daily_cac_participation') {
+                    if (value <= 100) return '#22c55e';
+                    if (value <= 150) return '#84cc16';
+                    if (value <= 200) return '#eab308';
+                    if (value <= 250) return '#f97316';
+                    return '#ef4444';
+                } else if (colorBy.includes('meta')) {
+                    // Meta CAC thresholds (often higher)
+                    if (value <= 200) return '#22c55e';
+                    if (value <= 300) return '#84cc16';
+                    if (value <= 400) return '#eab308';
+                    if (value <= 500) return '#f97316';
+                    return '#ef4444';
+                } else {
+                    // Standard CAC thresholds (FT, LT Non-Direct)
+                    if (value <= 150) return '#22c55e';
+                    if (value <= 200) return '#84cc16';
+                    if (value <= 250) return '#eab308';
+                    if (value <= 300) return '#f97316';
+                    return '#ef4444';
+                }
+            }
+        }
+        
+        function filterAndSortData() {
+            const sortBy = document.getElementById('sortBy').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+            const minTotalSpend = parseFloat(document.getElementById('minTotalSpend').value) || 0;
+            const maxRows = parseInt(document.getElementById('maxRows').value);
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            // Filter creatives based on total spend (sum of all daily spend)
+            let filtered = allData.filter(creative => creative.total_spend >= minTotalSpend);
+            
+            // Apply date window filter if dates are specified
+            if (startDate || endDate) {
+                filtered = filtered.map(creative => {
+                    // Filter daily data within the date window
+                    const filteredDailyData = creative.dailyData.filter(dayData => {
+                        const dayString = dayData.date.toISOString().split('T')[0];
+                        
+                        if (startDate && dayString < startDate) return false;
+                        if (endDate && dayString > endDate) return false;
+                        return true;
+                    });
+                    
+                    // If no daily data remains after filtering, exclude this creative
+                    if (filteredDailyData.length === 0) return null;
+                    
+                    // Create new creative object with filtered daily data and recalculated aggregates
+                    return {
+                        ...creative,
+                        dailyData: filteredDailyData,
+                        start_date: filteredDailyData[0].date,
+                        end_date: filteredDailyData[filteredDailyData.length - 1].date,
+                        total_spend: filteredDailyData.reduce((sum, d) => sum + d.daily_spend, 0),
+                        avg_daily_spend: filteredDailyData.reduce((sum, d) => sum + d.daily_spend, 0) / filteredDailyData.length,
+                        duration: Math.ceil((filteredDailyData[filteredDailyData.length - 1].date - filteredDailyData[0].date) / (1000 * 60 * 60 * 24)) + 1,
+                        total_clicks: filteredDailyData.reduce((sum, d) => sum + d.total_clicks, 0),
+                        total_conversions: filteredDailyData.reduce((sum, d) => sum + d.total_conversions_ft, 0)
+                    };
+                }).filter(creative => creative !== null);
+                
+                // Re-apply spend filter after date filtering (since totals may have changed)
+                filtered = filtered.filter(creative => creative.total_spend >= minTotalSpend);
+            }
+            
+            // Sort data
+            filtered.sort((a, b) => {
+                let comparison = 0;
+                
+                switch(sortBy) {
+                    case 'total_spend':
+                        comparison = b.total_spend - a.total_spend;
+                        break;
+                    case 'avg_daily_spend':
+                        comparison = b.avg_daily_spend - a.avg_daily_spend;
+                        break;
+                    case 'start_date':
+                        comparison = a.start_date - b.start_date;
+                        break;
+                    case 'ad_name':
+                        comparison = a.display_name.localeCompare(b.display_name);
+                        break;
+                    default:
+                        comparison = a.start_date - b.start_date;
+                }
+                
+                // Apply sort order (reverse if ascending for numeric values)
+                if (sortOrder === 'asc') {
+                    if (sortBy === 'ad_name' || sortBy === 'start_date') {
+                        // For text and dates, asc means normal order
+                        return comparison;
+                    } else {
+                        // For numeric values, asc means reverse the default high-to-low
+                        return -comparison;
+                    }
+                } else {
+                    return comparison;
+                }
+            });
+            
+            if (maxRows < 999) {
+                filtered = filtered.slice(0, maxRows);
+            }
+            
+            filteredData = filtered;
+        }
+        
+        function updateSpendScale(maxDailySpend) {
+            const spendScale = document.getElementById('spendScale');
+            spendScale.classList.remove('hidden');
+            
+            // Create spend scale with 5 levels
+            const levels = [
+                { label: `$${Math.round(maxDailySpend).toLocaleString()}`, height: 18, spend: maxDailySpend },
+                { label: `$${Math.round(maxDailySpend * 0.75).toLocaleString()}`, height: 14, spend: maxDailySpend * 0.75 },
+                { label: `$${Math.round(maxDailySpend * 0.5).toLocaleString()}`, height: 10, spend: maxDailySpend * 0.5 },
+                { label: `$${Math.round(maxDailySpend * 0.25).toLocaleString()}`, height: 6, spend: maxDailySpend * 0.25 },
+                { label: `$0`, height: 2, spend: 0 }
+            ];
+            
+            spendScale.innerHTML = `
+                <div class="spend-scale-title">📏 Spend Scale</div>
+                ${levels.map(level => `
+                    <div class="spend-scale-item">
+                        <div class="spend-scale-bar" style="width: 30px; height: ${level.height}px;"></div>
+                        <span>${level.label}</span>
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        function updateCACInfoPanel(colorBy) {
+            const cacPanel = document.getElementById('cacInfoPanel');
+            
+            if (colorBy === 'spend') {
+                cacPanel.classList.add('hidden');
+                return;
+            }
+            
+            cacPanel.classList.remove('hidden');
+            
+            // Get all unique CAC values for the current metric from visible data
+            const allCACValues = filteredData.flatMap(d => 
+                d.dailyData.map(dd => dd[colorBy])
+            ).filter(val => val > 0);
+            
+            if (allCACValues.length === 0) {
+                cacPanel.innerHTML = '<div class="cac-info-title">No CAC Data</div>';
+                return;
+            }
+            
+            // Calculate distribution
+            const sortedValues = allCACValues.sort((a, b) => a - b);
+            const min = sortedValues[0];
+            const max = sortedValues[sortedValues.length - 1];
+            const avg = allCACValues.reduce((sum, val) => sum + val, 0) / allCACValues.length;
+            
+            // Color thresholds based on metric type
+            let thresholds;
+            const metricName = colorBy === 'daily_cac_ft' ? 'Daily CAC First Touch' 
+                           : colorBy === 'daily_cac_lt_non_direct' ? 'Daily CAC LT Non-Direct'
+                           : colorBy === 'daily_cac_participation' ? 'Daily CAC Participation'
+                           : colorBy === 'daily_cac_meta_1d_view' ? 'Daily CAC Meta 1D View'
+                           : colorBy === 'daily_cac_meta_7d_click' ? 'Daily CAC Meta 7D Click'
+                           : 'Daily CAC';
+            
+            if (colorBy === 'daily_cac_participation') {
+                thresholds = [
+                    { max: 100, color: '#22c55e', label: 'Excellent' },
+                    { max: 150, color: '#84cc16', label: 'Good' },
+                    { max: 200, color: '#eab308', label: 'Medium' },
+                    { max: 250, color: '#f97316', label: 'High' },
+                    { max: Infinity, color: '#ef4444', label: 'Very High' }
+                ];
+            } else if (colorBy.includes('meta')) {
+                thresholds = [
+                    { max: 200, color: '#22c55e', label: 'Excellent' },
+                    { max: 300, color: '#84cc16', label: 'Good' },
+                    { max: 400, color: '#eab308', label: 'Medium' },
+                    { max: 500, color: '#f97316', label: 'High' },
+                    { max: Infinity, color: '#ef4444', label: 'Very High' }
+                ];
+            } else {
+                thresholds = [
+                    { max: 150, color: '#22c55e', label: 'Excellent' },
+                    { max: 200, color: '#84cc16', label: 'Good' },
+                    { max: 250, color: '#eab308', label: 'Medium' },
+                    { max: 300, color: '#f97316', label: 'High' },
+                    { max: Infinity, color: '#ef4444', label: 'Very High' }
+                ];
+            }
+            
+            cacPanel.innerHTML = `
+                <div class="cac-info-title">${metricName}</div>
+                <div style="font-size: 10px; color: #6b7280; margin-bottom: 8px;">
+                    Avg: $${avg.toFixed(0)} | Range: $${min.toFixed(0)}-$${max.toFixed(0)}
+                </div>
+                ${thresholds.map(threshold => `
+                    <div class="cac-info-item">
+                        <div class="cac-color-dot" style="background: ${threshold.color};"></div>
+                        <span>${threshold.label} ${threshold.max === Infinity ? `>${thresholds[thresholds.length-2].max}` : `≤${threshold.max}`}</span>
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        function updateColorLegend(colorBy) {
+            const colorLegend = document.getElementById('colorLegend');
+            const cacLegend = document.getElementById('cacLegend');
+            const cacLegendText = document.getElementById('cacLegendText');
+            
+            if (colorBy === 'spend') {
+                colorLegend.style.display = 'flex';
+                cacLegend.style.display = 'none';
+            } else {
+                colorLegend.style.display = 'none';
+                cacLegend.style.display = 'flex';
+                
+                // Update CAC threshold text based on selected metric
+                if (colorBy === 'daily_cac_participation') {
+                    cacLegendText.textContent = 'Daily CAC Participation thresholds: Green ≤$100, Lime ≤$150, Yellow ≤$200, Orange ≤$250, Red >$250';
+                } else if (colorBy.includes('meta')) {
+                    const metricName = colorBy === 'daily_cac_meta_1d_view' ? 'Daily CAC Meta 1D View' : 'Daily CAC Meta 7D Click';
+                    cacLegendText.textContent = `${metricName} thresholds: Green ≤$200, Lime ≤$300, Yellow ≤$400, Orange ≤$500, Red >$500`;
+                } else {
+                    const metricName = colorBy === 'daily_cac_ft' ? 'Daily CAC First Touch' : 'Daily CAC LT Non-Direct';
+                    cacLegendText.textContent = `${metricName} thresholds: Green ≤$150, Lime ≤$200, Yellow ≤$250, Orange ≤$300, Red >$300`;
+                }
+            }
+        }
+        
+        function updateVisualization() {
+            filterAndSortData();
+            drawDailyTimeline();
+            updateStats();
+            updateColorLegend(document.getElementById('colorBy').value);
+        }
+
+
+        let zoomBehavior;
+
+        // compute day width dynamically from a time scale
+        function dayWidthFromScale(scale) {
+            const oneDayMs = 24 * 60 * 60 * 1000;
+            const px = scale(new Date(2000,0,2)) - scale(new Date(2000,0,1)); // 1 day apart
+            return Math.max(3, px - 1);
+        }
+        
+        function drawDailyTimeline() {
+            const svg = d3.select('#timeline-chart');
+            svg.selectAll('*').remove();
+
+            if (filteredData.length === 0) return;
+
+            const margin = { top: 80, right: 180, bottom: 120, left: 280 };
+            const rowHeight = 24;
+            const rowSpacing = 6;
+            const height = Math.max(400, filteredData.length * (rowHeight + rowSpacing) + margin.top + margin.bottom);
+            const width = Math.max(1200, window.innerWidth - 100);
+
+            svg.attr('width', width).attr('height', height);
+
+            const innerWidth  = width  - margin.left - margin.right;
+            const innerHeight = height - margin.top  - margin.bottom;
+
+            const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Date extent from visible data
+            const allDates = filteredData.flatMap(d => d.dailyData.map(dd => dd.date));
+            const dateExtent = d3.extent(allDates);
+
+            // Base (unzoomed) time scale
+            const xScale = d3.scaleTime()
+                .domain(dateExtent)
+                .range([0, innerWidth]);
+
+            // Spend height scale (fixed; doesn’t change on zoom)
+            const maxDailySpend = d3.max(filteredData.flatMap(d => d.dailyData.map(dd => dd.daily_spend)));
+            const heightScale = d3.scaleLinear()
+                .domain([0, maxDailySpend])
+                .range([2, rowHeight - 2]);
+
+            const colorBy = document.getElementById('colorBy').value;
+
+            // Groups we’ll update on zoom
+            const blocksG = g.append('g').attr('class', 'blocks');
+            const bottomAxisG = g.append('g').attr('class', 'axis').attr('transform', `translate(0, ${filteredData.length * (rowHeight + rowSpacing) + 10})`);
+            const topAxisG    = g.append('g').attr('class', 'axis').attr('transform', 'translate(0, -10)');
+            const gridG       = g.append('g').attr('class', 'grid');
+
+            // Pre-bind data once (better perf on zoom)
+            const rows = blocksG.selectAll('.row')
+                .data(filteredData)
+                .enter()
+                .append('g')
+                .attr('class', 'row')
+                .attr('transform', (_, i) => `translate(0, ${i * (rowHeight + rowSpacing)})`);
+
+            const rects = rows.selectAll('rect')
+                .data(d => d.dailyData.map(day => ({ creative: d, day })))
+                .enter()
+                .append('rect')
+                .attr('class', 'daily-block')
+                .attr('rx', 1)
+                .on('mouseover', function(event, d) {
+                    const { creative, day: dayData } = d;
+                    const tooltip = d3.select('#tooltip');
+
+                    const overallMetrics = `
+                        <strong>📊 Overall Creative Performance:</strong><br>
+                        • Total Spend: $${creative.total_spend.toLocaleString()}<br>
+                        • Duration: ${creative.duration} days<br>
+                        • Avg Daily Spend: $${Math.round(creative.avg_daily_spend).toLocaleString()}<br>
+                        • Total Clicks: ${creative.total_clicks.toLocaleString()}<br>
+                        • Total Conversions: ${creative.total_conversions}<br><br>
+                        <strong>🎯 Lifetime CAC Metrics:</strong><br>
+                        • Lifetime CAC First Touch: $${(dayData.lifetime_cac_ft || 0).toFixed(2)}<br>
+                        • Lifetime CAC LT Non-Direct: $${(dayData.lifetime_cac_lt_non_direct || 0).toFixed(2)}<br>
+                        • Lifetime CAC Participation: $${(dayData.lifetime_cac_participation || 0).toFixed(2)}<br>
+                        • Lifetime CAC Meta 1D View: $${(dayData.lifetime_cac_meta_1d_view || 0).toFixed(2)}<br>
+                        • Lifetime CAC Meta 7D Click: $${(dayData.lifetime_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                    `;
+
+                    const dailyMetrics = `
+                        <strong>📅 This Day (${dayData.date.toLocaleDateString()}):</strong><br>
+                        • Day #${dayData.nth_day} • Daily Spend: $${dayData.daily_spend.toLocaleString()}<br>
+                        • Daily Clicks: ${dayData.total_clicks.toLocaleString()}<br>
+                        • Daily Conversions: ${dayData.total_conversions_ft}<br><br>
+                        <strong>Daily CAC (calculated from this day):</strong><br>
+                        • Daily CAC First Touch: $${(dayData.daily_cac_ft || 0).toFixed(2)}<br>
+                        • Daily CAC LT Non-Direct: $${(dayData.daily_cac_lt_non_direct || 0).toFixed(2)}<br>
+                        • Daily CAC Participation: $${(dayData.daily_cac_participation || 0).toFixed(2)}<br>
+                        • Daily CAC Meta 1D View: $${(dayData.daily_cac_meta_1d_view || 0).toFixed(2)}<br>
+                        • Daily CAC Meta 7D Click: $${(dayData.daily_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                        <strong>Daily Conversions:</strong><br>
+                        • FT: ${dayData.daily_converge_conversion_ft || 0} | LT Non-Direct: ${dayData.daily_converge_conversion_lt_non_direct || 0}<br>
+                        • Participation: ${dayData.daily_converge_conversion_participation || 0}<br>
+                        • Meta 1D View: ${dayData.meta_conversion_1d_view || 0} | Meta 7D Click: ${dayData.meta_conversion_7d_click || 0}
+                    `;
+
+                    tooltip.style('opacity', 1)
+                        .html(`
+                            <div style="max-width: 400px;">
+                                <strong style="font-size: 14px; color: #3b82f6;">${creative.display_name}</strong><br>
+                                <span style="color: #6b7280; font-size: 11px;">Ad ID: ${creative.ad_id}</span><br><br>
+                                ${overallMetrics}
+                                ${dailyMetrics}
+                            </div>
+                        `)
+                        .style('left', (event.pageX + 10) + 'px')
+                        .style('top', (event.pageY - 10) + 'px');
+                })
+                .on('mouseout', function() {
+                    d3.select('#tooltip').style('opacity', 0);
+                });
+
+            // Labels (don’t move on zoom)
+            g.selectAll('.creative-label')
+                .data(filteredData)
+                .enter()
+                .append('text')
+                .attr('class', 'creative-label')
+                .attr('x', -10)
+                .attr('y', (d, i) => i * (rowHeight + rowSpacing) + rowHeight / 2)
+                .attr('dy', '0.35em')
+                .attr('text-anchor', 'end')
+                .attr('font-size', '10px')
+                .attr('fill', '#374151')
+                .text(d => (d.display_name.length > 40 ? d.display_name.substring(0, 40) + '...' : d.display_name));
+
+            // Draw/update everything given a scale (used first time and on zoom)
+            function renderWithScale(zx) {
+                // dynamic per-day pixel width
+                const dayWidth = dayWidthFromScale(zx);
+
+                // rect positions & colors
+                rects
+                    .attr('y', d => {
+                        const blockH = heightScale(d.day.daily_spend);
+                        return (rowHeight - blockH) / 2;
+                    })
+                    .attr('height', d => heightScale(d.day.daily_spend))
+                    .attr('x', d => zx(d.day.date) - dayWidth / 2)
+                    .attr('width', dayWidth)
+                    .attr('fill', d => getDailyColor(d.day, colorBy));
+
+                // choose ticks based on zoomed span
+                const domain = zx.domain();
+                const spanDays = (domain[1] - domain[0]) / (1000 * 60 * 60 * 24);
+
+                let tickEvery, tickFormat;
+                if (spanDays <= 14) {
+                    tickEvery = d3.timeDay.every(1);
+                    tickFormat = d3.timeFormat('%b %d');
+                } else if (spanDays <= 60) {
+                    tickEvery = d3.timeWeek.every(1);
+                    tickFormat = d3.timeFormat('%b %d');
+                } else {
+                    tickEvery = d3.timeMonth.every(1);
+                    tickFormat = d3.timeFormat('%b %Y');
+                }
+
+                bottomAxisG.call(d3.axisBottom(zx).ticks(tickEvery).tickFormat(tickFormat));
+                topAxisG.call(d3.axisTop(zx).ticks(tickEvery).tickFormat(tickFormat));
+
+                // rotate labels if crowded
+                const tickCount = bottomAxisG.selectAll('.tick').size();
+                if (tickCount > 6) {
+                    bottomAxisG.selectAll('text')
+                        .style('text-anchor', 'end')
+                        .attr('dx', '-1.2em')
+                        .attr('dy', '0.5em')
+                        .attr('transform', 'rotate(-60)');
+                    topAxisG.selectAll('text')
+                        .style('text-anchor', 'start')
+                        .attr('dx', '1.2em')
+                        .attr('dy', '-0.5em')
+                        .attr('transform', 'rotate(60)');
+                }
+
+                // grid
+                gridG
+                    .attr('transform', `translate(0, ${filteredData.length * (rowHeight + rowSpacing) + 10})`)
+                    .call(
+                        d3.axisBottom(zx)
+                            .ticks(spanDays <= 14 ? d3.timeDay.every(1) : d3.timeWeek.every(1))
+                            .tickSize(-(filteredData.length * (rowHeight + rowSpacing) + 10))
+                            .tickFormat('')
+                    )
+                    .selectAll('line')
+                    .style('stroke', '#f1f5f9')
+                    .style('stroke-width', 1);
+            }
+
+            // Initial render (no zoom)
+            renderWithScale(xScale);
+
+            // Panels outside the SVG
+            updateSpendScale(maxDailySpend);
+            updateCACInfoPanel(colorBy);
+
+            // Setup d3.zoom for pinch/wheel zoom and drag pan
+            zoomBehavior = d3.zoom()
+                .scaleExtent([1, 50]) // 1 = full view, 50 = very zoomed in
+                .translateExtent([[0, 0], [innerWidth, innerHeight]]) // clamp panning
+                .extent([[0, 0], [innerWidth, innerHeight]])
+                .on('zoom', (event) => {
+                    const zx = event.transform.rescaleX(xScale);
+                    renderWithScale(zx);
+                });
+
+            // Enable zoom on the whole svg area
+            svg.call(zoomBehavior).on('dblclick.zoom', null); // disable dblclick zoom if you want
+
+            // Keyboard zoom: Ctrl/Cmd + / -
+            const zoomStep = 1.2;
+            function keyZoom(e) {
+                const isPlus = (e.key === '+' || e.key === '=');
+                const isMinus = (e.key === '-');
+                if ((e.ctrlKey || e.metaKey) && (isPlus || isMinus)) {
+                    e.preventDefault();
+                    const factor = isPlus ? zoomStep : 1 / zoomStep;
+                    // zoom towards center top (x mid, y top axis)
+                    const pt = [margin.left + innerWidth / 2, margin.top];
+                    svg.transition().duration(150).call(zoomBehavior.scaleBy, factor, pt);
+                }
+            }
+            // Attach once; avoid multiple listeners on redraws
+            if (!document.__timelineKeyZoomAttached) {
+                document.addEventListener('keydown', keyZoom);
+                document.__timelineKeyZoomAttached = true;
+            }
+        }
+
+        function updateStats() {
+            const statsDiv = d3.select('#stats');
+            statsDiv.selectAll('*').remove();
+            
+            if (filteredData.length === 0) return;
+            
+            const totalSpend = d3.sum(filteredData, d => d.total_spend);
+            const avgDailySpend = d3.mean(filteredData.flatMap(d => d.dailyData.map(dd => dd.daily_spend)));
+            const totalDays = d3.sum(filteredData, d => d.dailyData.length);
+            const avgDuration = d3.mean(filteredData, d => d.duration);
+            
+            const stats = [
+                { label: 'Total Creatives', value: filteredData.length },
+                { label: 'Total Spend', value: `${totalSpend.toLocaleString()}` },
+                { label: 'Avg Daily Spend', value: `${Math.round(avgDailySpend).toLocaleString()}` },
+                { label: 'Total Active Days', value: totalDays.toLocaleString() },
+                { label: 'Avg Duration', value: `${Math.round(avgDuration)} days` },
+                { label: 'Total Clicks', value: `${d3.sum(filteredData, d => d.total_clicks || 0).toLocaleString()}` }
+            ];
+            
+            stats.forEach(stat => {
+                const card = statsDiv.append('div').attr('class', 'stat-card');
+                card.append('div').attr('class', 'stat-value').text(stat.value);
+                card.append('div').attr('class', 'stat-label').text(stat.label);
+            });
+        }
+        
+        // Event listeners
+        document.getElementById('colorBy').addEventListener('change', updateVisualization);
+        document.getElementById('sortBy').addEventListener('change', updateVisualization);
+        document.getElementById('sortOrder').addEventListener('change', updateVisualization);
+        document.getElementById('startDate').addEventListener('change', updateVisualization);
+        document.getElementById('endDate').addEventListener('change', updateVisualization);
+        document.getElementById('minTotalSpend').addEventListener('input', updateVisualization);
+        document.getElementById('maxRows').addEventListener('change', updateVisualization);
+    </script>
+</body>
+</html>
