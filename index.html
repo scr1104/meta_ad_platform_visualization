@@ -73,6 +73,7 @@
             gap: 8px;
         }
         
+        
         label {
             font-weight: 500;
             color: #374151;
@@ -86,7 +87,7 @@
         }
         
         .chart-container {
-            overflow-x: auto;
+            overflow-x: auto;  /* keeps a scrollbar if SVG ever exceeds container */
             border: 1px solid #e5e7eb;
             border-radius: 8px;
             position: relative;
@@ -409,11 +410,13 @@
             </div>
             
             <div class="chart-container">
+                <!-- New top bar for scales -->
+                <div class="scales-bar">
+                    <div id="spendScale" class="spend-scale hidden"></div>
+                    <div id="cacInfoPanel" class="cac-info-panel hidden"></div>
+                </div>
                 <svg id="timeline-chart"></svg>
-                <div id="spendScale" class="spend-scale hidden"></div>
-                <div id="cacInfoPanel" class="cac-info-panel hidden"></div>
             </div>
-            
             <div class="legend" id="legend">
                 <div class="legend-item">
                     <div class="legend-color" style="background: linear-gradient(to right, #fef3c7, #f59e0b, #b45309);"></div>
@@ -921,114 +924,126 @@
             updateStats();
             updateColorLegend(document.getElementById('colorBy').value);
         }
+
+
+        let zoomBehavior;
+
+        // compute day width dynamically from a time scale
+        function dayWidthFromScale(scale) {
+            const oneDayMs = 24 * 60 * 60 * 1000;
+            const px = scale(new Date(2000,0,2)) - scale(new Date(2000,0,1)); // 1 day apart
+            return Math.max(3, px - 1);
+        }
         
         function drawDailyTimeline() {
             const svg = d3.select('#timeline-chart');
             svg.selectAll('*').remove();
-            
+
             if (filteredData.length === 0) return;
-            
-            const margin = { top: 80, right: 180, bottom: 120, left: 280 }; // Increased bottom margin for rotated labels
+
+            const margin = { top: 80, right: 180, bottom: 120, left: 280 };
             const rowHeight = 24;
             const rowSpacing = 6;
             const height = Math.max(400, filteredData.length * (rowHeight + rowSpacing) + margin.top + margin.bottom);
             const width = Math.max(1200, window.innerWidth - 100);
-            
+
             svg.attr('width', width).attr('height', height);
+
+            const innerWidth  = width  - margin.left - margin.right;
+            const innerHeight = height - margin.top  - margin.bottom;
+
             const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-            
-            // Get date extent from all daily data
+
+            // Date extent from visible data
             const allDates = filteredData.flatMap(d => d.dailyData.map(dd => dd.date));
             const dateExtent = d3.extent(allDates);
-            
+
+            // Base (unzoomed) time scale
             const xScale = d3.scaleTime()
                 .domain(dateExtent)
-                .range([0, width - margin.left - margin.right]);
-            
-            // Calculate day width (each day gets equal width)
-            const dayWidth = Math.max(3, (width - margin.left - margin.right) / ((dateExtent[1] - dateExtent[0]) / (1000 * 60 * 60 * 24) + 1));
-            
-            // Spend scale for block thickness
+                .range([0, innerWidth]);
+
+            // Spend height scale (fixed; doesn’t change on zoom)
             const maxDailySpend = d3.max(filteredData.flatMap(d => d.dailyData.map(dd => dd.daily_spend)));
             const heightScale = d3.scaleLinear()
                 .domain([0, maxDailySpend])
                 .range([2, rowHeight - 2]);
-            
+
             const colorBy = document.getElementById('colorBy').value;
-            
-            // Draw daily blocks for each creative
-            filteredData.forEach((creative, creativeIndex) => {
-                const y = creativeIndex * (rowHeight + rowSpacing);
-                
-                // Draw each day as a separate block
-                creative.dailyData.forEach(dayData => {
-                    const blockHeight = heightScale(dayData.daily_spend);
-                    const blockY = y + (rowHeight - blockHeight) / 2;
-                    
-                    g.append('rect')
-                        .attr('class', 'daily-block')
-                        .attr('x', xScale(dayData.date) - dayWidth/2)
-                        .attr('y', blockY)
-                        .attr('width', dayWidth - 1)
-                        .attr('height', blockHeight)
-                        .attr('fill', getDailyColor(dayData, colorBy))
-                        .attr('rx', 1)
-                        .on('mouseover', function(event) {
-                            const tooltip = d3.select('#tooltip');
-                            
-                          // Calculate overall/lifetime CAC metrics from creative data
-                            const overallMetrics = `
-                                <strong>📊 Overall Creative Performance:</strong><br>
-                                • Total Spend: $${creative.total_spend.toLocaleString()}<br>
-                                • Duration: ${creative.duration} days<br>
-                                • Avg Daily Spend: $${Math.round(creative.avg_daily_spend).toLocaleString()}<br>
-                                • Total Clicks: ${creative.total_clicks.toLocaleString()}<br>
-                                • Total Conversions: ${creative.total_conversions}<br><br>
-                                <strong>🎯 Lifetime CAC Metrics:</strong><br>
-                                • Lifetime CAC First Touch: $${(dayData.lifetime_cac_ft || 0).toFixed(2)}<br>
-                                • Lifetime CAC LT Non-Direct: $${(dayData.lifetime_cac_lt_non_direct || 0).toFixed(2)}<br>
-                                • Lifetime CAC Participation: $${(dayData.lifetime_cac_participation || 0).toFixed(2)}<br>
-                                • Lifetime CAC Meta 1D View: $${(dayData.lifetime_cac_meta_1d_view || 0).toFixed(2)}<br>
-                                • Lifetime CAC Meta 7D Click: $${(dayData.lifetime_cac_meta_7d_click || 0).toFixed(2)}<br><br>
-                            `;
-                            
-                            // Show daily metrics
-                            const dailyMetrics = `
-                                <strong>📅 This Day (${dayData.date.toLocaleDateString()}):</strong><br>
-                                • Day #${dayData.nth_day} • Daily Spend: $${dayData.daily_spend.toLocaleString()}<br>
-                                • Daily Clicks: ${dayData.total_clicks.toLocaleString()}<br>
-                                • Daily Conversions: ${dayData.total_conversions_ft}<br><br>
-                                <strong>Daily CAC (calculated from this day):</strong><br>
-                                • Daily CAC First Touch: $${(dayData.daily_cac_ft || 0).toFixed(2)}<br>
-                                • Daily CAC LT Non-Direct: $${(dayData.daily_cac_lt_non_direct || 0).toFixed(2)}<br>
-                                • Daily CAC Participation: $${(dayData.daily_cac_participation || 0).toFixed(2)}<br>
-                                • Daily CAC Meta 1D View: $${(dayData.daily_cac_meta_1d_view || 0).toFixed(2)}<br>
-                                • Daily CAC Meta 7D Click: $${(dayData.daily_cac_meta_7d_click || 0).toFixed(2)}<br><br>
-                                <strong>Daily Conversions:</strong><br>
-                                • FT: ${dayData.daily_converge_conversion_ft || 0} | LT Non-Direct: ${dayData.daily_converge_conversion_lt_non_direct || 0}<br>
-                                • Participation: ${dayData.daily_converge_conversion_participation || 0}<br>
-                                • Meta 1D View: ${dayData.meta_conversion_1d_view || 0} | Meta 7D Click: ${dayData.meta_conversion_7d_click || 0}
-                            `;
-                            
-                            tooltip.style('opacity', 1)
-                                .html(`
-                                    <div style="max-width: 400px;">
-                                        <strong style="font-size: 14px; color: #3b82f6;">${creative.display_name}</strong><br>
-                                        <span style="color: #6b7280; font-size: 11px;">Ad ID: ${creative.ad_id}</span><br><br>
-                                        ${overallMetrics}
-                                        ${dailyMetrics}
-                                    </div>
-                                `)
-                                .style('left', (event.pageX + 10) + 'px')
-                                .style('top', (event.pageY - 10) + 'px');
-                        })
-                        .on('mouseout', function() {
-                            d3.select('#tooltip').style('opacity', 0);
-                        });
+
+            // Groups we’ll update on zoom
+            const blocksG = g.append('g').attr('class', 'blocks');
+            const bottomAxisG = g.append('g').attr('class', 'axis').attr('transform', `translate(0, ${filteredData.length * (rowHeight + rowSpacing) + 10})`);
+            const topAxisG    = g.append('g').attr('class', 'axis').attr('transform', 'translate(0, -10)');
+            const gridG       = g.append('g').attr('class', 'grid');
+
+            // Pre-bind data once (better perf on zoom)
+            const rows = blocksG.selectAll('.row')
+                .data(filteredData)
+                .enter()
+                .append('g')
+                .attr('class', 'row')
+                .attr('transform', (_, i) => `translate(0, ${i * (rowHeight + rowSpacing)})`);
+
+            const rects = rows.selectAll('rect')
+                .data(d => d.dailyData.map(day => ({ creative: d, day })))
+                .enter()
+                .append('rect')
+                .attr('class', 'daily-block')
+                .attr('rx', 1)
+                .on('mouseover', function(event, d) {
+                    const { creative, day: dayData } = d;
+                    const tooltip = d3.select('#tooltip');
+
+                    const overallMetrics = `
+                        <strong>📊 Overall Creative Performance:</strong><br>
+                        • Total Spend: $${creative.total_spend.toLocaleString()}<br>
+                        • Duration: ${creative.duration} days<br>
+                        • Avg Daily Spend: $${Math.round(creative.avg_daily_spend).toLocaleString()}<br>
+                        • Total Clicks: ${creative.total_clicks.toLocaleString()}<br>
+                        • Total Conversions: ${creative.total_conversions}<br><br>
+                        <strong>🎯 Lifetime CAC Metrics:</strong><br>
+                        • Lifetime CAC First Touch: $${(dayData.lifetime_cac_ft || 0).toFixed(2)}<br>
+                        • Lifetime CAC LT Non-Direct: $${(dayData.lifetime_cac_lt_non_direct || 0).toFixed(2)}<br>
+                        • Lifetime CAC Participation: $${(dayData.lifetime_cac_participation || 0).toFixed(2)}<br>
+                        • Lifetime CAC Meta 1D View: $${(dayData.lifetime_cac_meta_1d_view || 0).toFixed(2)}<br>
+                        • Lifetime CAC Meta 7D Click: $${(dayData.lifetime_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                    `;
+
+                    const dailyMetrics = `
+                        <strong>📅 This Day (${dayData.date.toLocaleDateString()}):</strong><br>
+                        • Day #${dayData.nth_day} • Daily Spend: $${dayData.daily_spend.toLocaleString()}<br>
+                        • Daily Clicks: ${dayData.total_clicks.toLocaleString()}<br>
+                        • Daily Conversions: ${dayData.total_conversions_ft}<br><br>
+                        <strong>Daily CAC (calculated from this day):</strong><br>
+                        • Daily CAC First Touch: $${(dayData.daily_cac_ft || 0).toFixed(2)}<br>
+                        • Daily CAC LT Non-Direct: $${(dayData.daily_cac_lt_non_direct || 0).toFixed(2)}<br>
+                        • Daily CAC Participation: $${(dayData.daily_cac_participation || 0).toFixed(2)}<br>
+                        • Daily CAC Meta 1D View: $${(dayData.daily_cac_meta_1d_view || 0).toFixed(2)}<br>
+                        • Daily CAC Meta 7D Click: $${(dayData.daily_cac_meta_7d_click || 0).toFixed(2)}<br><br>
+                        <strong>Daily Conversions:</strong><br>
+                        • FT: ${dayData.daily_converge_conversion_ft || 0} | LT Non-Direct: ${dayData.daily_converge_conversion_lt_non_direct || 0}<br>
+                        • Participation: ${dayData.daily_converge_conversion_participation || 0}<br>
+                        • Meta 1D View: ${dayData.meta_conversion_1d_view || 0} | Meta 7D Click: ${dayData.meta_conversion_7d_click || 0}
+                    `;
+
+                    tooltip.style('opacity', 1)
+                        .html(`
+                            <div style="max-width: 400px;">
+                                <strong style="font-size: 14px; color: #3b82f6;">${creative.display_name}</strong><br>
+                                <span style="color: #6b7280; font-size: 11px;">Ad ID: ${creative.ad_id}</span><br><br>
+                                ${overallMetrics}
+                                ${dailyMetrics}
+                            </div>
+                        `)
+                        .style('left', (event.pageX + 10) + 'px')
+                        .style('top', (event.pageY - 10) + 'px');
+                })
+                .on('mouseout', function() {
+                    d3.select('#tooltip').style('opacity', 0);
                 });
-            });
-            
-            // Add labels
+
+            // Labels (don’t move on zoom)
             g.selectAll('.creative-label')
                 .data(filteredData)
                 .enter()
@@ -1040,84 +1055,112 @@
                 .attr('text-anchor', 'end')
                 .attr('font-size', '10px')
                 .attr('fill', '#374151')
-                .text(d => {
-                    const name = d.display_name;
-                    return name.length > 40 ? name.substring(0, 40) + '...' : name;
-                });
-            
-            // X-axis with daily ticks
-            const dateRange = dateExtent[1] - dateExtent[0];
-            const daysDiff = dateRange / (1000 * 60 * 60 * 24);
-            
-            let xAxis;
-            if (daysDiff <= 14) {
-                xAxis = d3.axisBottom(xScale)
-                    .ticks(d3.timeDay.every(1))
-                    .tickFormat(d3.timeFormat('%b %d'));
-            } else if (daysDiff <= 60) {
-                xAxis = d3.axisBottom(xScale)
-                    .ticks(d3.timeWeek.every(1))
-                    .tickFormat(d3.timeFormat('%b %d'));
-            } else {
-                xAxis = d3.axisBottom(xScale)
-                    .ticks(d3.timeMonth.every(1))
-                    .tickFormat(d3.timeFormat('%b %Y'));
+                .text(d => (d.display_name.length > 40 ? d.display_name.substring(0, 40) + '...' : d.display_name));
+
+            // Draw/update everything given a scale (used first time and on zoom)
+            function renderWithScale(zx) {
+                // dynamic per-day pixel width
+                const dayWidth = dayWidthFromScale(zx);
+
+                // rect positions & colors
+                rects
+                    .attr('y', d => {
+                        const blockH = heightScale(d.day.daily_spend);
+                        return (rowHeight - blockH) / 2;
+                    })
+                    .attr('height', d => heightScale(d.day.daily_spend))
+                    .attr('x', d => zx(d.day.date) - dayWidth / 2)
+                    .attr('width', dayWidth)
+                    .attr('fill', d => getDailyColor(d.day, colorBy));
+
+                // choose ticks based on zoomed span
+                const domain = zx.domain();
+                const spanDays = (domain[1] - domain[0]) / (1000 * 60 * 60 * 24);
+
+                let tickEvery, tickFormat;
+                if (spanDays <= 14) {
+                    tickEvery = d3.timeDay.every(1);
+                    tickFormat = d3.timeFormat('%b %d');
+                } else if (spanDays <= 60) {
+                    tickEvery = d3.timeWeek.every(1);
+                    tickFormat = d3.timeFormat('%b %d');
+                } else {
+                    tickEvery = d3.timeMonth.every(1);
+                    tickFormat = d3.timeFormat('%b %Y');
+                }
+
+                bottomAxisG.call(d3.axisBottom(zx).ticks(tickEvery).tickFormat(tickFormat));
+                topAxisG.call(d3.axisTop(zx).ticks(tickEvery).tickFormat(tickFormat));
+
+                // rotate labels if crowded
+                const tickCount = bottomAxisG.selectAll('.tick').size();
+                if (tickCount > 6) {
+                    bottomAxisG.selectAll('text')
+                        .style('text-anchor', 'end')
+                        .attr('dx', '-1.2em')
+                        .attr('dy', '0.5em')
+                        .attr('transform', 'rotate(-60)');
+                    topAxisG.selectAll('text')
+                        .style('text-anchor', 'start')
+                        .attr('dx', '1.2em')
+                        .attr('dy', '-0.5em')
+                        .attr('transform', 'rotate(60)');
+                }
+
+                // grid
+                gridG
+                    .attr('transform', `translate(0, ${filteredData.length * (rowHeight + rowSpacing) + 10})`)
+                    .call(
+                        d3.axisBottom(zx)
+                            .ticks(spanDays <= 14 ? d3.timeDay.every(1) : d3.timeWeek.every(1))
+                            .tickSize(-(filteredData.length * (rowHeight + rowSpacing) + 10))
+                            .tickFormat('')
+                    )
+                    .selectAll('line')
+                    .style('stroke', '#f1f5f9')
+                    .style('stroke-width', 1);
             }
-            
-            const axisHeight = filteredData.length * (rowHeight + rowSpacing) + 10;
-            
-            // Bottom X-axis
-            const xAxisGroup = g.append('g')
-                .attr('class', 'axis')
-                .attr('transform', `translate(0, ${axisHeight})`)
-                .call(xAxis);
-            
-        // Top X-axis
-            const topXAxis = d3.axisTop(xScale)
-                .ticks(xAxis.ticks())
-                .tickFormat(xAxis.tickFormat());
-            
-            const topXAxisGroup = g.append('g')
-                .attr('class', 'axis')
-                .attr('transform', 'translate(0, -10)')
-                .call(topXAxis);
-            
-            // Rotate labels for better visibility and increase bottom margin
-            const tickCount = xAxisGroup.selectAll('.tick').size();
-            if (tickCount > 6) {
-                // Bottom axis rotation
-                xAxisGroup.selectAll('text')
-                    .style('text-anchor', 'end')
-                    .attr('dx', '-1.2em')
-                    .attr('dy', '0.5em')
-                    .attr('transform', 'rotate(-60)');
-                    
-                // Top axis rotation
-                topXAxisGroup.selectAll('text')
-                    .style('text-anchor', 'start')
-                    .attr('dx', '1.2em')
-                    .attr('dy', '-0.5em')
-                    .attr('transform', 'rotate(60)');
-            }
-            
-            // Add grid lines
-            g.append('g')
-                .attr('class', 'grid')
-                .attr('transform', `translate(0, ${axisHeight})`)
-                .call(d3.axisBottom(xScale)
-                    .ticks(daysDiff <= 14 ? d3.timeDay.every(1) : d3.timeWeek.every(1))
-                    .tickSize(-axisHeight - 10)
-                    .tickFormat('')
-                )
-                .selectAll('line')
-                .style('stroke', '#f1f5f9')
-                .style('stroke-width', 1);
-            
-            // Update spend scale and CAC info panels
+
+            // Initial render (no zoom)
+            renderWithScale(xScale);
+
+            // Panels outside the SVG
             updateSpendScale(maxDailySpend);
             updateCACInfoPanel(colorBy);
+
+            // Setup d3.zoom for pinch/wheel zoom and drag pan
+            zoomBehavior = d3.zoom()
+                .scaleExtent([1, 50]) // 1 = full view, 50 = very zoomed in
+                .translateExtent([[0, 0], [innerWidth, innerHeight]]) // clamp panning
+                .extent([[0, 0], [innerWidth, innerHeight]])
+                .on('zoom', (event) => {
+                    const zx = event.transform.rescaleX(xScale);
+                    renderWithScale(zx);
+                });
+
+            // Enable zoom on the whole svg area
+            svg.call(zoomBehavior).on('dblclick.zoom', null); // disable dblclick zoom if you want
+
+            // Keyboard zoom: Ctrl/Cmd + / -
+            const zoomStep = 1.2;
+            function keyZoom(e) {
+                const isPlus = (e.key === '+' || e.key === '=');
+                const isMinus = (e.key === '-');
+                if ((e.ctrlKey || e.metaKey) && (isPlus || isMinus)) {
+                    e.preventDefault();
+                    const factor = isPlus ? zoomStep : 1 / zoomStep;
+                    // zoom towards center top (x mid, y top axis)
+                    const pt = [margin.left + innerWidth / 2, margin.top];
+                    svg.transition().duration(150).call(zoomBehavior.scaleBy, factor, pt);
+                }
+            }
+            // Attach once; avoid multiple listeners on redraws
+            if (!document.__timelineKeyZoomAttached) {
+                document.addEventListener('keydown', keyZoom);
+                document.__timelineKeyZoomAttached = true;
+            }
         }
-        
+
         function updateStats() {
             const statsDiv = d3.select('#stats');
             statsDiv.selectAll('*').remove();
